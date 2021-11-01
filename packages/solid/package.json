@@ -39,6 +39,9 @@
   "exports": {
     ".": {
       "browser": {
+        "solid-sources": {
+          "import": "./src/index.ts"
+        },
         "development": {
           "import": "./dist/dev.js",
           "require": "./dist/dev.cjs"
@@ -50,6 +53,9 @@
         "import": "./dist/server.js",
         "require": "./dist/server.cjs"
       },
+      "solid-sources": {
+        "import": "./src/index.ts"
+      },
       "development": {
         "import": "./dist/dev.js",
         "require": "./dist/dev.cjs"
@@ -60,6 +66,9 @@
     "./dist/*": "./dist/*",
     "./store": {
       "browser": {
+        "solid-sources": {
+          "import": "./store/src/index.ts"
+        },
         "development": {
           "import": "./store/dist/dev.js",
           "require": "./store/dist/dev.cjs"
@@ -71,6 +80,9 @@
         "import": "./store/dist/server.js",
         "require": "./store/dist/server.cjs"
       },
+      "solid-sources": {
+        "import": "./store/src/index.ts"
+      },
       "development": {
         "import": "./store/dist/dev.js",
         "require": "./store/dist/dev.cjs"
@@ -81,6 +93,9 @@
     "./store/dist/*": "./store/dist/*",
     "./web": {
       "browser": {
+        "solid-sources": {
+          "import": "./web/src/index.ts"
+        },
         "development": {
           "import": "./web/dist/dev.js",
           "require": "./web/dist/dev.cjs"
@@ -91,6 +106,9 @@
       "node": {
         "import": "./web/dist/server.js",
         "require": "./web/dist/server.cjs"
+      },
+      "solid-sources": {
+        "import": "./web/src/index.ts"
       },
       "development": {
         "import": "./web/dist/dev.js",
