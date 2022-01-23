@@ -6,6 +6,7 @@ import {
   untrack,
   splitProps,
   Component,
+  componentWrapper,
   JSX,
   createRoot,
   sharedConfig,
@@ -107,11 +108,11 @@ type DynamicProps<T> = T & {
 export function Dynamic<T>(props: DynamicProps<T>): Accessor<JSX.Element> {
   const [p, others] = splitProps(props, ["component"]);
   return createMemo(() => {
-    const component = p.component as Function | string;
+    const component = p.component as Component | string;
     switch (typeof component) {
       case "function":
         if ("_DX_DEV_") Object.assign(component, { [$DEVCOMP]: true });
-        return untrack(() => component(others));
+        return untrack(() => componentWrapper(component)(others));
 
       case "string":
         const isSvg = SVGElements.has(component);

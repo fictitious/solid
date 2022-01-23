@@ -51,6 +51,9 @@ import type { JSX } from "./jsx";
 type JSXElement = JSX.Element;
 export type { JSXElement, JSX };
 
+import { createSignal, createMemo, untrack, onCleanup } from "./reactive/signal";
+import { devtoolsHookName } from "./render/component";
+
 // dev
 import { writeSignal, serializeGraph, registerGraph, hashValue } from "./reactive/signal";
 let DEV: {
@@ -76,3 +79,11 @@ if ("_SOLID_DEV_" && globalThis) {
       "You appear to have multiple instances of Solid. This can lead to unexpected behavior."
     );
 }
+
+window[devtoolsHookName]?.registerSolidInstance({
+  createSignal,
+  createMemo,
+  untrack,
+  onCleanup,
+  buildType: "_SOLID_DEV_" ? "development" : "production"
+});

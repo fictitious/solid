@@ -1,0 +1,13 @@
+{
+    "extends": "../../../tsconfig.json",
+    "compilerOptions": {
+      "emitDeclarationOnly": false,
+      "outDir": "devtools-api/dist",
+      "rootDir": "devtools-api/dist",
+      "baseUrl": "src",
+      "paths": {
+        "solid-js": ["../.."]
+      }
+    },
+    "include": ["./src"]
+}

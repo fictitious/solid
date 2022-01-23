@@ -4,6 +4,7 @@ import {
   createResource,
   createMemo,
   devComponent,
+  onCleanup,
   $PROXY,
   $DEVCOMP
 } from "../reactive/signal";
@@ -30,7 +31,40 @@ export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component<any
     : T extends keyof JSX.IntrinsicElements
     ? JSX.IntrinsicElements[T]
     : {};
-export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
+
+// devtools hook api is defined here because it uses types defined in this file, like Component
+// and this file needs to call devtools hook methods
+export const devtoolsHookName = '__SOLID_DEVTOOLS_GLOBAL_HOOK__';
+export interface RegisterSolidInstance {
+    createSignal: typeof createSignal;
+    createMemo: typeof createMemo;
+    untrack: typeof untrack;
+    onCleanup: typeof onCleanup;
+    buildType: 'development' | 'production';
+}
+
+export type ComponentWrapper = <T>(c: Component<T>) => Component<T>;
+export type HookInsertParentWrapper = (p: Node) => {};
+export type HookRegisterRoot = (r: Node) => () => void;
+
+export interface HookApi {
+  registerSolidInstance(p: RegisterSolidInstance): void;
+  getComponentWrapper(updateWrapper: (newWrapper: ComponentWrapper) => void): ComponentWrapper;
+  getInsertParentWrapper(updateWrapper: (newWrapper: HookInsertParentWrapper) => void): HookInsertParentWrapper;
+  getRegisterRoot(updateRegisterRoot: (newRegisterRoot: HookRegisterRoot) => void): HookRegisterRoot;
+}
+declare global {
+    interface Window {
+        [devtoolsHookName]?: HookApi
+    }
+}
+  
+export let componentWrapper: ComponentWrapper = 
+  window[devtoolsHookName]?.getComponentWrapper(newWrapper => { componentWrapper = newWrapper }) 
+    || (c => c);
+
+export function createComponent<T>(UComp: (props: T) => JSX.Element, props: T): JSX.Element {
+  const Comp = componentWrapper(UComp);
   if (hydrationEnabled) {
     if (sharedConfig.context) {
       const c = sharedConfig.context;
