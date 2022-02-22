@@ -3,6 +3,7 @@ import nodeResolve from "@rollup/plugin-node-resolve";
 import babel from "@rollup/plugin-babel";
 import cleanup from "rollup-plugin-cleanup";
 import replace from "@rollup/plugin-replace";
+import pf from 'path';
 
 const plugins = [
   nodeResolve({
@@ -19,7 +20,7 @@ const plugins = [
         "babel-plugin-transform-rename-import",
         {
           original: "rxcore",
-          replacement: `../../../packages/solid/web/src/core`
+          replacement: pf.resolve(__dirname, `./web/src/core`)
         }
       ]
     ]
