@@ -4,6 +4,8 @@ import {
   createResource,
   createMemo,
   devComponent,
+  devtoolsHookName,
+  ComponentWrapper,
   $PROXY,
   $DEVCOMP
 } from "../reactive/signal";
@@ -30,17 +32,24 @@ export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component<any
     : T extends keyof JSX.IntrinsicElements
     ? JSX.IntrinsicElements[T]
     : {};
-export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
+
+
+export let devtoolsComponentWrapper: ComponentWrapper = 
+  window[devtoolsHookName]?.getComponentWrapper(newWrapper => { devtoolsComponentWrapper = newWrapper }) 
+    || (c => c);
+
+export function createComponent<T>(UComp: (props: T) => JSX.Element, props: T): JSX.Element {
+  const Comp = devtoolsComponentWrapper(UComp);
   if (hydrationEnabled) {
     if (sharedConfig.context) {
       const c = sharedConfig.context;
       setHydrateContext(nextHydrateContext());
-      const r = "_SOLID_DEV_" ? devComponent(Comp, props) : untrack(() => Comp(props as T));
+      const r = "_SOLID_DEV_" && Comp === UComp ? devComponent(Comp, props) : untrack(() => Comp(props as T));
       setHydrateContext(c);
       return r;
     }
   }
-  if ("_SOLID_DEV_") return devComponent(Comp, props);
+  if ("_SOLID_DEV_" && Comp === UComp) return devComponent(Comp, props);
   return untrack(() => Comp(props as T));
 }
 

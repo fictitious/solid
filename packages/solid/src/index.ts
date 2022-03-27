@@ -27,6 +27,7 @@ export {
   getOwner,
   runWithOwner,
   equalFn,
+  devtoolsHookName,
   $DEVCOMP,
   $PROXY
 } from "./reactive/signal";
@@ -39,7 +40,16 @@ export type {
   ResourceFetcher,
   ResourceFetcherInfo,
   Context,
-  ReturnTypes
+  ReturnTypes,
+  HookApi,
+  RegisterSolidInstance,
+  ComponentWrapper,
+  HookInsertParentWrapper,
+  HookRegisterDOMRoot,
+  HookRegisterComputation,
+  HookWrapSignal,
+  Computation,
+  SignalState
 } from "./reactive/signal";
 
 export * from "./reactive/observable";
@@ -50,6 +60,8 @@ export * from "./render";
 import type { JSX } from "./jsx";
 type JSXElement = JSX.Element;
 export type { JSXElement, JSX };
+
+import { devtoolsHookName, getSolidInstance } from "./reactive/signal";
 
 // dev
 import { writeSignal, serializeGraph, registerGraph, hashValue } from "./reactive/signal";
@@ -76,3 +88,6 @@ if ("_SOLID_DEV_" && globalThis) {
       "You appear to have multiple instances of Solid. This can lead to unexpected behavior."
     );
 }
+
+// tell devtools solid is here
+window[devtoolsHookName]?.registerSolidInstance(getSolidInstance("_SOLID_DEV_" ? "development" : "production"));

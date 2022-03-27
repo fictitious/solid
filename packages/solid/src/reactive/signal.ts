@@ -19,6 +19,12 @@ const UNOWNED: Owner = {
   context: null,
   owner: null
 };
+
+export const devtoolsHookName = '__SOLID_DEVTOOLS_GLOBAL_HOOK__';
+let devtoolsWrapSignal: HookWrapSignal = 
+  window[devtoolsHookName]?.getWrapSignal(newWrap => { devtoolsWrapSignal = newWrap }) 
+    || ((setter) => setter);
+
 const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 export var Owner: Owner | null = null;
 export let Transition: TransitionState | null = null;
@@ -45,6 +51,21 @@ export interface SignalState<T> {
   name?: string;
 }
 
+export type DevtoolsData = WatchedDevtoolsData | IntermediateDevtoolsData;
+
+export interface DevtoolsDataBase {
+  upper?: WatchedDevtoolsData;
+  ownedSignalIds?: string[];
+}
+export interface WatchedDevtoolsData extends DevtoolsDataBase {
+  type: 'devComponent';
+  id: string;
+} 
+
+export interface IntermediateDevtoolsData extends DevtoolsDataBase {
+  type: 'intermediate';
+}
+
 export interface Owner {
   owned: Computation<any>[] | null;
   cleanups: (() => void)[] | null;
@@ -53,6 +74,7 @@ export interface Owner {
   sourceMap?: Record<string, { value: unknown }>;
   name?: string;
   componentName?: string;
+  devtoolsData?: DevtoolsData;
 }
 
 export interface Computation<Init, Next extends Init = Init> extends Owner {
@@ -89,6 +111,50 @@ export interface ExternalSource {
   track: EffectFunction<any, any>;
   dispose: () => void;
 }
+
+// devtools api
+export interface RegisterSolidInstance {
+  $DEVCOMP: typeof $DEVCOMP,
+  getOwner: typeof getOwner,
+  createSignal: typeof createSignal;
+  devComponentComputation: typeof devComponentComputation;
+  untrack: typeof untrack;
+  onCleanup: typeof onCleanup;
+  buildType: 'development' | 'production';
+}
+
+export function getSolidInstance(buildType: 'development' | 'production'): RegisterSolidInstance {
+  return {
+    $DEVCOMP,
+    getOwner,
+    createSignal,
+    devComponentComputation,
+    untrack,
+    onCleanup,
+    buildType
+  };
+}
+
+export type ComponentWrapper = <T>(c: (props: T) => JSX.Element) => ((props: T) => JSX.Element) & {[$DEVCOMP]?: true};
+export type HookInsertParentWrapper = (p: Node) => {};
+export type HookRegisterDOMRoot = (r: Node) => () => void;
+export type HookRegisterComputation = <T>(c: Computation<T>) => void;
+export type HookWrapSignal = <T>(setter: Setter<T | undefined>, signalState: SignalState<T>, name?: string) => Setter<T | undefined>;
+export interface HookApi {
+  registerSolidInstance(p: RegisterSolidInstance): void;
+  getComponentWrapper(updateWrapper: (newWrapper: ComponentWrapper) => void): ComponentWrapper;
+  getInsertParentWrapper(updateWrapper: (newWrapper: HookInsertParentWrapper) => void): HookInsertParentWrapper;
+  getRegisterDOMRoot(updateRegisterDOMRoot: (newRegisterDOMRoot: HookRegisterDOMRoot) => void): HookRegisterDOMRoot;
+  getRegisterComputation(updateWrap: (newRegister: HookRegisterComputation) => void): HookRegisterComputation;
+  getWrapSignal(updateWrap: (newWrap: HookWrapSignal) => void): HookWrapSignal;
+}
+
+declare global {
+  interface Window {
+      [devtoolsHookName]?: HookApi;
+  }
+}
+
 
 export type RootFunction<T> = (dispose: () => void) => T;
 
@@ -169,8 +235,10 @@ export function createSignal<T>(value?: T, options?: SignalOptions<T>): Signal<T
     comparator: options.equals || undefined
   };
 
+  let name: string | undefined;
   if ("_SOLID_DEV_" && !options.internal)
-    s.name = registerGraph(options.name || hashValue(value), s as { value: unknown });
+    name = s.name = registerGraph(options.name || hashValue(value), s as { value: unknown });
+  else name = options.name;
 
   const setter: Setter<T | undefined> = (value: unknown) => {
     if (typeof value === "function") {
@@ -181,7 +249,7 @@ export function createSignal<T>(value?: T, options?: SignalOptions<T>): Signal<T
     return writeSignal(s, value);
   };
 
-  return [readSignal.bind(s), setter];
+  return [readSignal.bind(s), devtoolsWrapSignal(setter, s, name)];
 }
 
 export interface BaseOptions {
@@ -982,13 +1050,10 @@ export function resumeEffects(e: Computation<any>[]) {
 }
 
 // Dev
-export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
+export function devComponentComputation(compName: string): {c: Partial<Memo<JSX.Element, JSX.Element>>, runComponent: (compFn: () => JSX.Element) => JSX.Element} {
+  let fn: () => JSX.Element | undefined = () => undefined;
   const c: Partial<Memo<JSX.Element, JSX.Element>> = createComputation<JSX.Element, JSX.Element>(
-    () =>
-      untrack(() => {
-        Object.assign(Comp, { [$DEVCOMP]: true });
-        return Comp(props);
-      }),
+    () => fn(),
     undefined,
     true
   );
@@ -996,9 +1061,25 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
   c.observers = null;
   c.observerSlots = null;
   c.state = 0;
-  c.componentName = Comp.name;
-  updateComputation(c as Memo<JSX.Element>);
-  return c.tValue !== undefined ? c.tValue : c.value;
+  c.componentName = compName;
+  return {
+    c,
+    runComponent: (compFn: () => JSX.Element): JSX.Element => {
+      fn = compFn;
+      updateComputation(c as Memo<JSX.Element>);
+      return c.tValue !== undefined ? c.tValue : c.value;
+    }
+  };
+}
+
+export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
+  const {runComponent} = devComponentComputation(Comp.name);
+  return runComponent(() =>
+    untrack(() => {
+      Object.assign(Comp, { [$DEVCOMP]: true });
+      return Comp(props);
+    })
+  );
 }
 
 export function hashValue(v: any): string {
@@ -1278,6 +1359,10 @@ function runComputation(node: Computation<any>, value: any, time: number) {
   }
 }
 
+let devtoolsRegisterComputation: HookRegisterComputation = 
+  window[devtoolsHookName]?.getRegisterComputation(newRegister => { devtoolsRegisterComputation = newRegister }) 
+    || (() => {});
+
 function createComputation<Next, Init = unknown>(
   fn: EffectFunction<Init | Next, Next>,
   init: Init,
@@ -1338,6 +1423,7 @@ function createComputation<Next, Init = unknown>(
     };
   }
 
+  devtoolsRegisterComputation(c as Computation<unknown>);
   return c;
 }
 
