@@ -21,6 +21,12 @@ const UNOWNED: Owner = {
   context: null,
   owner: null
 };
+
+export const devtoolsHookName = '__SOLID_DEVTOOLS_GLOBAL_HOOK__';
+let devtoolsWrapSignal: HookWrapSignal =
+  window[devtoolsHookName]?.getWrapSignal(newWrap => { devtoolsWrapSignal = newWrap })
+    || ((setter) => setter);
+
 const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 export var Owner: Owner | null = null;
 export let Transition: TransitionState | null = null;
@@ -47,6 +53,13 @@ export interface SignalState<T> {
   name?: string;
 }
 
+export interface DevtoolsData {
+  type: ComputationType;
+  id: string;
+  componentId?: string;
+  ownedSignalIds?: string[];
+}
+
 export interface Owner {
   owned: Computation<any>[] | null;
   cleanups: (() => void)[] | null;
@@ -55,6 +68,7 @@ export interface Owner {
   sourceMap?: Record<string, { value: unknown }>;
   name?: string;
   componentName?: string;
+  devtoolsData?: DevtoolsData;
 }
 
 export interface Computation<Init, Next extends Init = Init> extends Owner {
@@ -91,6 +105,51 @@ export interface ExternalSource {
   track: EffectFunction<any, any>;
   dispose: () => void;
 }
+
+// devtools api
+export interface RegisterSolidInstance {
+  $DEVCOMP: typeof $DEVCOMP,
+  getOwner: typeof getOwner,
+  createSignal: typeof createSignal;
+  devComponent: typeof devComponent;
+  untrack: typeof untrack;
+  onCleanup: typeof onCleanup;
+  buildType: 'development' | 'production';
+}
+
+export function getSolidInstance(buildType: 'development' | 'production'): RegisterSolidInstance {
+  return {
+    $DEVCOMP,
+    getOwner,
+    createSignal,
+    devComponent,
+    untrack,
+    onCleanup,
+    buildType
+  };
+}
+
+export type ComponentWrapper = <T>(c: (props: T) => JSX.Element) => ((props: T) => JSX.Element) & {[$DEVCOMP]?: true};
+export type HookInsertParentWrapper = (p: Node) => {};
+export type HookRegisterDOMRoot = (r: Node) => () => void;
+export type ComputationType = 'computed' | 'renderEffect' | 'effect' | 'reaction' | 'memo' | 'deferred' | 'selector' | 'devComponent';
+export type HookRegisterComputation = (c: Computation<any>, computationType: ComputationType, componentId?: string) => void;
+export type HookWrapSignal = <T>(setter: Setter<T | undefined>, signalState: SignalState<T>, name?: string) => Setter<T | undefined>;
+export interface HookApi {
+  registerSolidInstance(p: RegisterSolidInstance): void;
+  getComponentWrapper(updateWrapper: (newWrapper: ComponentWrapper) => void): ComponentWrapper;
+  getInsertParentWrapper(updateWrapper: (newWrapper: HookInsertParentWrapper) => void): HookInsertParentWrapper;
+  getRegisterDOMRoot(updateRegisterDOMRoot: (newRegisterDOMRoot: HookRegisterDOMRoot) => void): HookRegisterDOMRoot;
+  getRegisterComputation(updateWrap: (newRegister: HookRegisterComputation) => void): HookRegisterComputation;
+  getWrapSignal(updateWrap: (newWrap: HookWrapSignal) => void): HookWrapSignal;
+}
+
+declare global {
+  interface Window {
+      [devtoolsHookName]?: HookApi;
+  }
+}
+
 
 export type RootFunction<T> = (dispose: () => void) => T;
 
@@ -173,8 +232,10 @@ export function createSignal<T>(value?: T, options?: SignalOptions<T>): Signal<T
     comparator: options.equals || undefined
   };
 
+  let name: string | undefined;
   if ("_SOLID_DEV_" && !options.internal)
-    s.name = registerGraph(options.name || hashValue(value), s as { value: unknown });
+    name = s.name = registerGraph(options.name || hashValue(value), s as { value: unknown });
+  else name = options.name;
 
   const setter: Setter<T | undefined> = (value?: unknown) => {
     if (typeof value === "function") {
@@ -185,8 +246,12 @@ export function createSignal<T>(value?: T, options?: SignalOptions<T>): Signal<T
     return writeSignal(s, value);
   };
 
-  return [readSignal.bind(s), setter];
+  return [readSignal.bind(s), devtoolsWrapSignal(setter, s, name)];
 }
+
+let devtoolsRegisterComputation: HookRegisterComputation =
+  window[devtoolsHookName]?.getRegisterComputation(newRegister => { devtoolsRegisterComputation = newRegister })
+    || (() => {});
 
 export interface BaseOptions {
   name?: string;
@@ -229,6 +294,7 @@ export function createComputed<Next, Init>(
   options?: EffectOptions
 ): void {
   const c = createComputation(fn, value!, true, STALE, "_SOLID_DEV_" ? options : undefined);
+  devtoolsRegisterComputation(c, 'computed');
   if (Scheduler && Transition && Transition.running) Updates!.push(c);
   else updateComputation(c);
 }
@@ -260,6 +326,7 @@ export function createRenderEffect<Next, Init>(
   options?: EffectOptions
 ): void {
   const c = createComputation(fn, value!, false, STALE, "_SOLID_DEV_" ? options : undefined);
+  devtoolsRegisterComputation(c, 'renderEffect');
   if (Scheduler && Transition && Transition.running) Updates!.push(c);
   else updateComputation(c);
 }
@@ -295,6 +362,7 @@ export function createEffect<Next, Init>(
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
   c.user = true;
+  devtoolsRegisterComputation(c, 'effect');
   Effects ? Effects.push(c) : updateComputation(c);
 }
 
@@ -326,6 +394,7 @@ export function createReaction(onInvalidate: () => void, options?: EffectOptions
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
   c.user = true;
+  devtoolsRegisterComputation(c, 'reaction');
   return (tracking: () => void) => {
     fn = tracking;
     updateComputation(c);
@@ -385,6 +454,7 @@ export function createMemo<Next extends Prev, Init, Prev>(
   c.observers = null;
   c.observerSlots = null;
   c.comparator = options.equals || undefined;
+  devtoolsRegisterComputation(c as unknown as Computation<Init>, 'memo');
   if (Scheduler && Transition && Transition.running) {
     c.tState = STALE;
     Updates!.push(c as Memo<Init, Next>);
@@ -647,6 +717,7 @@ export function createDeferred<T>(source: Accessor<T>, options?: DeferredOptions
     undefined,
     true
   );
+  devtoolsRegisterComputation(node, 'deferred');
   const [deferred, setDeferred] = createSignal(node.value as T, options);
   updateComputation(node);
   setDeferred(() => node.value as T);
@@ -704,6 +775,7 @@ export function createSelector<T, U>(
     STALE,
     "_SOLID_DEV_" ? options : undefined
   ) as Memo<any>;
+  devtoolsRegisterComputation(node, 'selector');
   updateComputation(node);
   return (key: U) => {
     let listener: Computation<any> | null;
@@ -978,12 +1050,17 @@ export function resumeEffects(e: Computation<any>[]) {
 }
 
 // Dev
-export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
+export function devComponent<T>(
+  Comp: (props: T) => JSX.Element,
+  props: T,
+  wrapComponentResult: (r: JSX.Element) => JSX.Element = r => r,
+  componentId?: string
+) {
   const c: Partial<Memo<JSX.Element, JSX.Element>> = createComputation<JSX.Element, JSX.Element>(
     () =>
       untrack(() => {
         Object.assign(Comp, { [$DEVCOMP]: true });
-        return Comp(props);
+        return wrapComponentResult(Comp(props));
       }),
     undefined,
     true
@@ -993,6 +1070,7 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
   c.observerSlots = null;
   c.state = 0;
   c.componentName = Comp.name;
+  devtoolsRegisterComputation(c as Computation<JSX.Element>, 'devComponent', componentId);
   updateComputation(c as Memo<JSX.Element>);
   return c.tValue !== undefined ? c.tValue : c.value;
 }
